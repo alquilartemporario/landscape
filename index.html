@@ -2,27 +2,41 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Drone Tunnel Mobile PRO</title>
+<title>Drone Tunnel Mobile PRO FIX</title>
 
 <style>
 body{
     margin:0;
     background:black;
     overflow:hidden;
-    touch-action:none; /* importante para mobile */
+    touch-action:none;
 }
-canvas{
-    display:block;
+canvas{ display:block; }
+
+#startBtn{
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    padding:15px 20px;
+    font-size:16px;
+    background:white;
+    border:none;
+    border-radius:10px;
 }
 </style>
 </head>
 
 <body>
+
 <canvas id="game"></canvas>
+<button id="startBtn">Activar control de movimiento 📱</button>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+
+const btn = document.getElementById("startBtn");
 
 // AUDIO
 const passSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-arcade-game-complete-or-approved-mission-205.wav");
@@ -38,8 +52,8 @@ function resize(){
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    gameWidth = canvas.width * 0.9;
-    gameHeight = canvas.height * 0.9;
+    gameWidth = canvas.width * 0.6;
+    gameHeight = canvas.height * 0.7;
 
     gameX = (canvas.width - gameWidth)/2;
     gameY = (canvas.height - gameHeight)/2;
@@ -47,120 +61,110 @@ function resize(){
 window.addEventListener("resize", resize);
 resize();
 
-// INPUT KEYBOARD (fallback)
-const keys = {};
-
-// TOUCH STATE
-let touchLeft = false;
-let touchRight = false;
-
-// divide screen in two halves
-function handleTouch(e){
-    touchLeft = false;
-    touchRight = false;
-
-    for(let t of e.touches){
-        if(t.clientX < canvas.width/2) touchLeft = true;
-        else touchRight = true;
-    }
-}
+// INPUT TOUCH (boost)
+let touchBoost = false;
 
 document.addEventListener("touchstart", e=>{
-    handleTouch(e);
-    if(!boostSound.playing && touchLeft && touchRight){
-        boostSound.currentTime = 0;
+    if(e.touches.length >= 2){
+        touchBoost = true;
         boostSound.play();
     }
 });
 
-document.addEventListener("touchmove", handleTouch);
-
-document.addEventListener("touchend", e=>{
-    handleTouch(e);
-    if(!(touchLeft && touchRight)){
-        boostSound.pause();
-    }
+document.addEventListener("touchend", ()=>{
+    touchBoost = false;
+    boostSound.pause();
 });
 
-// GYRO CONTROL
-let gyroEnabled = false;
-let targetTilt = 0;
+// 🌐 GYRO FIX COMPLETO
+let gyro = {
+    enabled:false,
+    tilt:0
+};
 
-// suavizado (anti descontrol)
-let smoothTilt = 0;
-
-window.addEventListener("deviceorientation", (e)=>{
-    if(e.gamma !== null){
-        gyroEnabled = true;
-
-        // gamma: -90 left, 90 right
-        targetTilt = e.gamma / 45; // normaliza
-        targetTilt = Math.max(-1, Math.min(1, targetTilt));
+async function enableGyro(){
+    if(typeof DeviceOrientationEvent !== "undefined" &&
+       typeof DeviceOrientationEvent.requestPermission === "function"){
+        // iOS
+        const res = await DeviceOrientationEvent.requestPermission();
+        if(res !== "granted") return;
     }
-});
+
+    window.addEventListener("deviceorientation", handleGyro);
+    gyro.enabled = true;
+    btn.style.display="none";
+}
+
+function handleGyro(e){
+
+    let tilt;
+
+    const isLandscape = window.innerWidth > window.innerHeight;
+
+    // 📱 CORRECCIÓN CLAVE: ejes cambian en landscape
+    if(isLandscape){
+        tilt = e.beta; // horizontal mode
+    } else {
+        tilt = e.gamma; // vertical mode
+    }
+
+    if(tilt === null) return;
+
+    // normalización + suavizado
+    gyro.tilt = gyro.tilt * 0.85 + (tilt / 45) * 0.15;
+
+    gyro.tilt = Math.max(-1, Math.min(1, gyro.tilt));
+}
+
+btn.addEventListener("click", enableGyro);
 
 // ESTADO
-let started = false;
-let gameOver = false;
-let score = 0;
-let speedMultiplier = 1;
+let started=false;
+let gameOver=false;
+let score=0;
+let speedMultiplier=1;
 
-let greenFlash = 0;
-let hitFlash = 0;
+let greenFlash=0;
+let hitFlash=0;
 
-// DRONE
-let drone = {};
+// DRONE (NAVE ORIGINAL)
+let drone={};
 
 function resetDrone(){
-    drone = {
-        x: gameX + gameWidth/2,
-        y: gameY + gameHeight*0.7,
-        vx: 0,
-        vy: 0,
-        angle: 0,
-        angularVel: 0
+    drone={
+        x:gameX+gameWidth/2,
+        y:gameY+gameHeight*0.7,
+        vx:0,
+        vy:0,
+        angle:0,
+        angularVel:0
     };
 }
 
-// CONFIG
-const gravity = 0.25;
-const thrustPower = 0.5;
-const tiltPower = 0.002;
-const angularFriction = 0.88;
-const friction = 0.985;
-const maxAngle = 0.8;
-
-// 🌌 BACKGROUND
-const backgrounds = ["black","#020617","#0f172a","#111827"];
-
-let stars = [];
-for(let i=0;i<120;i++){
-    stars.push({
-        x: Math.random()*window.innerWidth,
-        y: Math.random()*window.innerHeight,
-        depth: Math.random()
-    });
-}
+// PHYSICS
+const gravity=0.25;
+const thrustPower=0.5;
+const tiltPower=0.002;
+const friction=0.99;
+const angularFriction=0.9;
 
 // PLANET
-let planet = null;
+let planet=null;
 
 function spawnPlanet(){
-    planet = {
-        t: 0,
-        baseSpeed: 0.004 + speedMultiplier*0.0008,
-        offsetX: (Math.random()-0.5) * gameWidth * 0.6,
-        holeOffset: (Math.random()-0.5) * gameHeight * 0.4,
+    planet={
+        t:0,
+        baseSpeed:0.004+speedMultiplier*0.0008,
+        offsetX:(Math.random()-0.5)*gameWidth*0.6,
+        holeOffset:(Math.random()-0.5)*gameHeight*0.4
     };
 }
 
 function update(){
 
     if(!started){
-        if(keys["w"] || (touchLeft && touchRight)){
-            started = true;
-            score = 0;
-            speedMultiplier = 1;
+        if(touchBoost){
+            started=true;
             resetDrone();
             spawnPlanet();
         }
@@ -168,41 +172,29 @@ function update(){
     }
 
     if(gameOver){
-        hitFlash -= 0.02;
-        if(hitFlash <= 0){
-            gameOver = false;
-            score = 0;
-            speedMultiplier = 1;
+        hitFlash-=0.02;
+        if(hitFlash<=0){
+            gameOver=false;
+            score=0;
+            speedMultiplier=1;
             resetDrone();
             spawnPlanet();
         }
         return;
     }
 
-    let thrust = (keys["w"] || (touchLeft && touchRight)) ? thrustPower : 0;
+    let thrust = touchBoost ? thrustPower : 0;
 
-    // ROTACIÓN CON GYRO + FALLBACK TECLADO
-    let inputTilt = 0;
+    // 🧠 GYRO CONTROL CORREGIDO
+    let tilt = gyro.enabled ? gyro.tilt : 0;
 
-    if(gyroEnabled){
-        smoothTilt += (targetTilt - smoothTilt) * 0.08;
-        inputTilt = smoothTilt;
-    } else {
-        if(keys["a"]) inputTilt = -1;
-        if(keys["d"]) inputTilt = 1;
-    }
-
-    // 🔧 estabilización (evita locura)
-    drone.angularVel += inputTilt * tiltPower;
-    drone.angularVel *= 0.92;
+    drone.angularVel += tilt * tiltPower;
+    drone.angularVel *= angularFriction;
 
     drone.angle += drone.angularVel;
 
-    // límite de ángulo
-    drone.angle = Math.max(-maxAngle, Math.min(maxAngle, drone.angle));
-
-    drone.vx += Math.sin(drone.angle) * thrust;
-    drone.vy -= Math.cos(drone.angle) * thrust;
+    drone.vx += Math.sin(drone.angle)*thrust;
+    drone.vy -= Math.cos(drone.angle)*thrust;
 
     drone.vy += gravity;
 
@@ -212,119 +204,112 @@ function update(){
     drone.vx *= friction;
     drone.vy *= friction;
 
-    if(drone.x < gameX) drone.x = gameX;
-    if(drone.x > gameX + gameWidth) drone.x = gameX + gameWidth;
+    if(drone.x<gameX) drone.x=gameX;
+    if(drone.x>gameX+gameWidth) drone.x=gameX+gameWidth;
 
-    if(drone.y > gameY + gameHeight){
-        collide();
-    }
+    if(drone.y>gameY+gameHeight) collide();
 
-    // stars
-    stars.forEach(s=>{
-        s.y += 1 + s.depth*2;
-        if(s.y > canvas.height){
-            s.y = 0;
-            s.x = Math.random()*canvas.width;
-        }
-    });
-
-    // planet
     if(planet){
 
-        let boost = (touchLeft && touchRight) ? 1.8 : 1;
+        planet.t += planet.baseSpeed*(touchBoost?1.8:1);
+        let e = planet.t*planet.t;
 
-        planet.t += planet.baseSpeed * boost;
-        let ease = planet.t * planet.t;
+        planet.radius=40+e*gameWidth;
 
-        planet.radius = 40 + ease * gameWidth;
+        planet.x=gameX+gameWidth/2+planet.offsetX*e;
+        planet.y=gameY+gameHeight/2;
 
-        planet.x = gameX + gameWidth/2 + planet.offsetX * ease;
-        planet.y = gameY + gameHeight/2;
+        planet.holeX=planet.x+Math.sin(planet.t*3)*30;
+        planet.holeY=planet.y+planet.holeOffset*e;
 
-        planet.holeX = planet.x + Math.sin(planet.t * 3) * 30;
-        planet.holeY = planet.y + planet.holeOffset * ease;
+        planet.hole=planet.radius*0.25;
 
-        planet.hole = (planet.radius * 0.25);
+        if(planet.t>=1){
 
-        if(planet.t >= 1){
+            let dx=drone.x-planet.holeX;
+            let dy=drone.y-planet.holeY;
+            let dist=Math.sqrt(dx*dx+dy*dy);
 
-            let dx = drone.x - planet.holeX;
-            let dy = drone.y - planet.holeY;
-            let dist = Math.sqrt(dx*dx + dy*dy);
-
-            if(dist > planet.hole){
-                collide();
-            } else {
+            if(dist>planet.hole) collide();
+            else{
                 score++;
-                speedMultiplier += 0.05;
-                greenFlash = 1;
+                speedMultiplier+=0.05;
+                greenFlash=1;
                 passSound.play();
             }
 
-            planet = null;
-            setTimeout(spawnPlanet, 200);
+            planet=null;
+            setTimeout(spawnPlanet,200);
         }
     }
 
-    if(greenFlash > 0) greenFlash -= 0.05;
+    if(greenFlash>0) greenFlash-=0.05;
 }
 
 function collide(){
-    gameOver = true;
-    hitFlash = 1;
+    gameOver=true;
+    hitFlash=1;
     loseSound.play();
     boostSound.pause();
 }
 
+// DRAW (NAVE ORIGINAL RESPETADA)
 function draw(){
 
-    ctx.fillStyle = backgrounds[Math.floor(score/10)%backgrounds.length];
+    ctx.fillStyle="black";
     ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    stars.forEach(s=>{
-        ctx.fillStyle="white";
-        ctx.fillRect(s.x,s.y,2,2);
-    });
 
     if(planet){
         ctx.beginPath();
-        ctx.arc(planet.x, planet.y, planet.radius, 0, Math.PI*2);
+        ctx.arc(planet.x,planet.y,planet.radius,0,Math.PI*2);
         ctx.fillStyle="green";
         ctx.fill();
 
         ctx.beginPath();
-        ctx.arc(planet.holeX, planet.holeY, planet.hole, 0, Math.PI*2);
+        ctx.arc(planet.holeX,planet.holeY,planet.hole,0,Math.PI*2);
         ctx.fillStyle="black";
         ctx.fill();
     }
 
-    // drone
+    // 🚀 NAVE ORIGINAL (RESPETADA)
     ctx.save();
-    ctx.translate(drone.x, drone.y);
+    ctx.translate(drone.x,drone.y);
     ctx.rotate(drone.angle);
 
     ctx.fillStyle="#94a3b8";
     ctx.fillRect(-20,-8,40,16);
+
+    ctx.fillStyle="#38bdf8";
+    ctx.beginPath();
+    ctx.arc(-35,0,10,0,Math.PI*2);
+    ctx.arc(35,0,10,0,Math.PI*2);
+    ctx.fill();
+
+    if(touchBoost){
+        ctx.fillStyle="orange";
+        ctx.fillRect(-40,10,8,15);
+        ctx.fillRect(32,10,8,15);
+    }
 
     ctx.restore();
 
     // UI
     ctx.fillStyle="white";
     ctx.font="18px Arial";
-    ctx.fillText("Score: " + score, 20, 30);
+    ctx.fillText("Score: "+score,20,30);
 
     if(!started){
-        ctx.fillText("Toca ambos lados para empezar", canvas.width/2-130, canvas.height/2);
+        ctx.fillText("Toca pantalla para iniciar",canvas.width/2-100,canvas.height/2);
     }
 
-    if(hitFlash > 0){
+    if(hitFlash>0){
         ctx.fillStyle="rgba(255,0,0,"+hitFlash+")";
         ctx.fillRect(0,0,canvas.width,canvas.height);
     }
 
-    if(greenFlash > 0){
+    if(greenFlash>0){
         ctx.fillStyle="rgba(0,255,0,"+greenFlash+")";
-        ctx.fillRect(gameX, gameY, gameWidth, gameHeight);
+        ctx.fillRect(gameX,gameY,gameWidth,gameHeight);
     }
 }
 
