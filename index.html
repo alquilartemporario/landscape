@@ -34,9 +34,24 @@ function unlockAudio(){
 
     passSound.play().then(()=>passSound.pause()).catch(()=>{});
     loseSound.play().then(()=>loseSound.pause()).catch(()=>{});
+}
 
+// ================= FULLSCREEN + ORIENTATION =================
+function goFull(){
     document.documentElement.requestFullscreen?.().catch(()=>{});
     screen.orientation?.lock?.("landscape").catch(()=>{});
+}
+
+// iOS gyro permission
+async function requestGyro(){
+    try{
+        if(typeof DeviceOrientationEvent !== "undefined" &&
+           typeof DeviceOrientationEvent.requestPermission === "function"){
+            const res = await DeviceOrientationEvent.requestPermission();
+            if(res !== "granted") return;
+        }
+        window.addEventListener("deviceorientation", handleGyro);
+    }catch(e){}
 }
 
 // ================= SIZE =================
@@ -91,11 +106,12 @@ canvas.addEventListener("touchend",()=>{
     rightPressed = false;
 });
 
-window.addEventListener("deviceorientation",(e)=>{
+// ================= GYRO =================
+function handleGyro(e){
     gamma = e.gamma || 0;
-});
+}
 
-// ================= ESTADO =================
+// ================= STATE =================
 let state = "menu";
 let score = 0;
 let speedMultiplier = 1;
@@ -104,7 +120,7 @@ let greenFlash = 0;
 let hitFlash = 0;
 
 // ================= DRONE =================
-let drone = {};
+let drone;
 
 function resetDrone(){
     drone = {
@@ -117,16 +133,15 @@ function resetDrone(){
     };
 }
 
-// ================= CONFIG =================
-const gravity = 0.25;
-const thrustPower = 0.55;
-const tiltPower = 0.0015;
-const friction = 0.99;
-const angularFriction = 0.90;
-const maxTilt = 0.05;
-
-// rotación sensibilidad
-const ROT_THRESHOLD = 8;
+// ================= RESET TOTAL =================
+function resetAll(){
+    score = 0;
+    speedMultiplier = 1;
+    planet = null;
+    greenFlash = 0;
+    hitFlash = 0;
+    resetDrone();
+}
 
 // ================= PLANET =================
 let planet = null;
@@ -149,25 +164,32 @@ function spawnPlanet(){
 // ================= GAME FLOW =================
 function startGame(){
     state = "game";
-    score = 0;
-    speedMultiplier = 1;
-    resetDrone();
+    resetAll();
     spawnPlanet();
 }
 
 function backToMenu(){
     state = "menu";
+    resetAll();
 }
+
+// ================= PHYSICS =================
+const gravity = 0.25;
+const thrustPower = 0.55;
+const tiltPower = 0.0015;
+const friction = 0.99;
+const angularFriction = 0.90;
+const ROT_THRESHOLD = 8;
+const maxTilt = 0.05;
 
 // ================= UPDATE =================
 function update(){
-
     if(state !== "game") return;
 
-    // 🚀 BOOST SOLO si ambos lados
+    // 🚀 acelerar con ambos lados
     let thrust = (leftPressed && rightPressed) ? thrustPower : 0;
 
-    // 🔄 GIRO con rotación del celular
+    // 🔄 giro celular
     if(gamma < -ROT_THRESHOLD) drone.angularVel -= tiltPower;
     if(gamma > ROT_THRESHOLD) drone.angularVel += tiltPower;
 
@@ -196,7 +218,6 @@ function update(){
     // PLANET
     if(planet){
         planet.t += planet.baseSpeed;
-
         let ease = planet.t * planet.t;
 
         planet.radius = 40 + ease * gameWidth;
@@ -241,7 +262,7 @@ function lose(){
     loseSound.currentTime = 0;
     loseSound.play().catch(()=>{});
 
-    backToMenu();
+    backToMenu(); // reset total + vuelve menú
 }
 
 // ================= DRAW =================
@@ -263,12 +284,11 @@ function draw(){
         ctx.fillStyle="#3b82f6";
         ctx.fillRect(canvas.width/2-100, canvas.height/2+80,200,50);
         ctx.fillStyle="black";
-        ctx.fillText("FULLSCREEN", canvas.width/2-90, canvas.height/2+115);
+        ctx.fillText("FULLSCREEN", canvas.width/2-95, canvas.height/2+115);
 
         return;
     }
 
-    // GAME AREA
     ctx.fillStyle="white";
     ctx.font="20px Arial";
     ctx.fillText("Puntos: "+score,20,30);
@@ -282,10 +302,8 @@ function draw(){
     ctx.save();
     ctx.translate(drone.x,drone.y);
     ctx.rotate(drone.angle);
-
     ctx.fillStyle="#94a3b8";
     ctx.fillRect(-20,-8,40,16);
-
     ctx.restore();
 
     // PLANET
@@ -314,7 +332,7 @@ function draw(){
     }
 }
 
-// ================= MENU CLICK =================
+// ================= MENU TOUCH =================
 canvas.addEventListener("touchstart",(e)=>{
 
     let x = e.touches[0].clientX;
@@ -329,7 +347,8 @@ canvas.addEventListener("touchstart",(e)=>{
 
         if(x>canvas.width/2-100 && x<canvas.width/2+100 &&
            y>canvas.height/2+80 && y<canvas.height/2+130){
-            document.documentElement.requestFullscreen?.();
+            goFull();
+            requestGyro();
         }
     }
 });
