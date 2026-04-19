@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Drone Simulator Mobile</title>
+<title>Drone Simulator Mobile PRO</title>
 
 <style>
 body{
@@ -26,140 +26,167 @@ canvas{
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+function resize(){
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    groundY = canvas.height - 70;
+}
+window.addEventListener("resize", resize);
+resize();
 
 // =====================
 // DRONE
 // =====================
 const drone = {
     x: canvas.width/2,
-    y: canvas.height - 120,
-    vy: 0,
+    y: canvas.height - 150,
     vx: 0,
+    vy: 0,
     width: 60,
     height: 20,
     rot: 0
 };
 
 // =====================
-// INPUT TOUCH
+// CONTROLES (ZONAS FIJAS)
 // =====================
-let leftPressed = false;
-let rightPressed = false;
+let left = false;
+let right = false;
+let both = false;
 
-// dividir pantalla
-function handleTouch(e, isDown){
-    e.preventDefault();
+// zonas de pantalla
+function updateTouchZones(touches){
+    left = false;
+    right = false;
+    both = false;
 
-    leftPressed = false;
-    rightPressed = false;
+    let leftActive = false;
+    let rightActive = false;
 
-    for(let touch of e.touches){
-        if(touch.clientX < canvas.width/2){
-            leftPressed = true;
-        } else {
-            rightPressed = true;
+    for(let t of touches){
+        if(t.clientX < canvas.width * 0.33){
+            leftActive = true;
+        }
+        else if(t.clientX > canvas.width * 0.66){
+            rightActive = true;
+        }
+        else{
+            // centro no hace nada directo
         }
     }
 
-    if(!isDown && e.touches.length === 0){
-        leftPressed = false;
-        rightPressed = false;
+    if(leftActive && rightActive){
+        both = true;
+    } else {
+        left = leftActive;
+        right = rightActive;
     }
 }
 
-canvas.addEventListener("touchstart", (e)=>handleTouch(e,true));
-canvas.addEventListener("touchmove", (e)=>handleTouch(e,true));
-canvas.addEventListener("touchend", (e)=>handleTouch(e,false));
+canvas.addEventListener("touchstart", e=>{
+    e.preventDefault();
+    updateTouchZones(e.touches);
+});
+
+canvas.addEventListener("touchmove", e=>{
+    e.preventDefault();
+    updateTouchZones(e.touches);
+});
+
+canvas.addEventListener("touchend", e=>{
+    e.preventDefault();
+    updateTouchZones(e.touches);
+});
 
 // =====================
 // FÍSICA
 // =====================
-const gravity = 0.25;
-const liftPower = 0.6;
-const hoverDamping = 0.92;
+let groundY = canvas.height - 70;
 
-// piso
-const groundY = canvas.height - 60;
+const gravity = 0.22;
+const thrust = 0.55;
+const strafe = 0.35;
+
+const airFriction = 0.98;
+const groundFriction = 0.90;
 
 // =====================
-// LOOP
+// UPDATE
 // =====================
 function update(){
 
-    let lift = 0;
-
-    // ambos motores = subida fuerte y estable
-    if(leftPressed && rightPressed){
-        lift = liftPower * 2;
-    }
-    // solo uno = leve inestabilidad / maniobra
-    else if(leftPressed || rightPressed){
-        lift = liftPower * 0.9;
+    // ===== THRUST =====
+    if(both){
+        drone.vy -= thrust * 1.6;
+    } else {
+        drone.vy += gravity;
     }
 
-    // aplicar fuerzas
-    drone.vy += gravity - lift;
-
-    // hover stabilizer (evita caída brusca al soltar)
-    if(!leftPressed && !rightPressed){
-        drone.vy *= hoverDamping;
+    // ===== MOVIMIENTO LATERAL =====
+    if(left){
+        drone.vx -= strafe;
+    }
+    if(right){
+        drone.vx += strafe;
     }
 
-    // suavizado lateral (simula estabilidad del drone)
-    drone.vx *= 0.95;
+    // ===== INERCIA / ESTABILIDAD =====
+    drone.vx *= airFriction;
+    drone.vy *= 0.995;
 
-    // movimiento
-    drone.y += drone.vy;
+    // ===== POSICIÓN =====
     drone.x += drone.vx;
+    drone.y += drone.vy;
 
-    // límite piso
+    // ===== LÍMITES HORIZONTALES =====
+    if(drone.x < 20){
+        drone.x = 20;
+        drone.vx *= -0.3;
+    }
+    if(drone.x > canvas.width - 20){
+        drone.x = canvas.width - 20;
+        drone.vx *= -0.3;
+    }
+
+    // ===== SUELO =====
     if(drone.y > groundY){
         drone.y = groundY;
         drone.vy = 0;
+        drone.vx *= groundFriction;
     }
 
-    // techo invisible
-    if(drone.y < 50){
-        drone.y = 50;
+    // techo
+    if(drone.y < 40){
+        drone.y = 40;
         drone.vy = 0;
     }
 
-    // inclinación visual según movimiento
-    drone.rot = (drone.vx * 0.05);
+    // ===== ROTACIÓN SUAVE =====
+    drone.rot = drone.vx * 0.03;
 
     draw();
     requestAnimationFrame(update);
 }
 
 // =====================
-// DIBUJO
+// DRAW
 // =====================
 function draw(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    // fondo gradiente
-    let grad = ctx.createLinearGradient(0,0,0,canvas.height);
-    grad.addColorStop(0,"#0b1020");
-    grad.addColorStop(1,"#05070f");
-    ctx.fillStyle = grad;
+    // fondo
+    let g = ctx.createLinearGradient(0,0,0,canvas.height);
+    g.addColorStop(0,"#0b1020");
+    g.addColorStop(1,"#05070f");
+    ctx.fillStyle = g;
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    // piso
+    // suelo
     ctx.fillStyle = "#111827";
     ctx.fillRect(0, groundY, canvas.width, canvas.height-groundY);
 
-    // líneas piso
-    ctx.strokeStyle = "#1f2937";
-    for(let i=0;i<canvas.width;i+=40){
-        ctx.beginPath();
-        ctx.moveTo(i, groundY);
-        ctx.lineTo(i+20, groundY+20);
-        ctx.stroke();
-    }
-
-    // DRONE
+    // drone
     ctx.save();
     ctx.translate(drone.x, drone.y);
     ctx.rotate(drone.rot);
@@ -168,30 +195,27 @@ function draw(){
     ctx.fillStyle = "#e5e7eb";
     ctx.fillRect(-drone.width/2, -drone.height/2, drone.width, drone.height);
 
-    // hélice izquierda
+    // hélices
     ctx.beginPath();
     ctx.arc(-30, -15, 10, 0, Math.PI*2);
-    ctx.fillStyle = leftPressed ? "#22c55e" : "#374151";
+    ctx.fillStyle = left ? "#22c55e" : "#374151";
     ctx.fill();
-    ctx.closePath();
 
-    // hélice derecha
     ctx.beginPath();
     ctx.arc(30, -15, 10, 0, Math.PI*2);
-    ctx.fillStyle = rightPressed ? "#22c55e" : "#374151";
+    ctx.fillStyle = right ? "#22c55e" : "#374151";
     ctx.fill();
-    ctx.closePath();
 
-    // luces
+    // luz
     ctx.fillStyle = "#60a5fa";
     ctx.fillRect(-5, 0, 10, 4);
 
     ctx.restore();
 
-    // UI simple
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    // UI
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
     ctx.font = "14px Arial";
-    ctx.fillText("Izquierda: motor 1 | Derecha: motor 2", 20, 30);
+    ctx.fillText("Izq / Der = mover | Ambos = impulso", 20, 30);
 }
 
 update();
