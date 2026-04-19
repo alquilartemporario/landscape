@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Drone Tunnel Dynamic PRO</title>
+
+<style>
+body{
+    margin:0;
+    background:black;
+    overflow:hidden;
+}
+canvas{
+    display:block;
+}
+</style>
+</head>
+
+<body>
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// AUDIO
+const passSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-arcade-game-complete-or-approved-mission-205.wav");
+const boostSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-fast-small-sweep-transition-166.wav");
+const loseSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-player-losing-or-failing-2042.wav");
+
+boostSound.loop = true;
+
+let gameX, gameY, gameWidth, gameHeight;
+
+function resize(){
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    gameWidth = canvas.width * 0.6;
+    gameHeight = canvas.height * 0.7;
+
+    gameX = (canvas.width - gameWidth)/2;
+    gameY = (canvas.height - gameHeight)/2;
+}
+window.addEventListener("resize", resize);
+resize();
+
+// INPUT
+const keys = {};
+document.addEventListener("keydown", e=>{
+    keys[e.key]=true;
+
+    if(e.key==="w" && !boostSound.playing){
+        boostSound.currentTime = 0;
+        boostSound.play();
+    }
+});
+
+document.addEventListener("keyup", e=>{
+    keys[e.key]=false;
+    if(e.key==="w"){
+        boostSound.pause();
+    }
+});
+
+// ❌ CLICK ELIMINADO COMPLETAMENTE
+
+// ESTADO
+let started = false;
+let gameOver = false;
+let score = 0;
+let speedMultiplier = 1;
+
+let greenFlash = 0;
+let hitFlash = 0;
+
+// DRONE
+let drone = {};
+
+function resetDrone(){
+    drone = {
+        x: gameX + gameWidth/2,
+        y: gameY + gameHeight*0.7,
+        vx: 0,
+        vy: 0,
+        angle: 0,
+        angularVel: 0
+    };
+}
+
+// CONFIG
+const gravity = 0.25;
+const thrustPower = 0.5;
+const tiltPower = 0.0012;
+const angularFriction = 0.90;
+const maxTilt = 0.05;
+const friction = 0.99;
+
+// 🌌 FONDO
+const backgrounds = ["black","#020617","#0f172a","#020617","#111827"];
+
+let stars = [];
+for(let i=0;i<150;i++){
+    stars.push({
+        x: Math.random()*canvas.width,
+        y: Math.random()*canvas.height,
+        depth: Math.random(),
+    });
+}
+
+// 🪐 PLANETA (SIEMPRE VERDE)
+let planet = null;
+
+function spawnPlanet(){
+    planet = {
+        t: 0,
+        baseSpeed: 0.004 + speedMultiplier*0.0008,
+
+        offsetX: (Math.random()-0.5) * gameWidth * 0.6,
+        holeOffset: (Math.random()-0.5) * gameHeight * 0.4,
+    };
+}
+
+function getPlanetColor(){
+    return "green"; // 🟢 siempre verde
+}
+
+// UPDATE
+function update(){
+
+    if(!started && keys["w"]){
+        started = true;
+        score = 0;
+        speedMultiplier = 1;
+        resetDrone();
+        spawnPlanet();
+    }
+
+    if(!started) return;
+
+    if(gameOver){
+        hitFlash -= 0.02;
+        if(hitFlash <= 0){
+            gameOver = false;
+            score = 0;
+            speedMultiplier = 1;
+            resetDrone();
+            spawnPlanet();
+        }
+        return;
+    }
+
+    let thrust = keys["w"] ? thrustPower : 0;
+
+    if(keys["a"]) drone.angularVel -= tiltPower;
+    if(keys["d"]) drone.angularVel += tiltPower;
+
+    drone.angularVel = Math.max(-maxTilt, Math.min(maxTilt, drone.angularVel));
+
+    drone.vx += Math.sin(drone.angle) * thrust;
+    drone.vy -= Math.cos(drone.angle) * thrust;
+
+    drone.vy += gravity;
+
+    drone.x += drone.vx;
+    drone.y += drone.vy;
+    drone.angle += drone.angularVel;
+
+    drone.vx *= friction;
+    drone.vy *= friction;
+    drone.angularVel *= angularFriction;
+
+    if(drone.x < gameX) drone.x = gameX;
+    if(drone.x > gameX + gameWidth) drone.x = gameX + gameWidth;
+
+    if(drone.y > gameY + gameHeight){
+        collide();
+    }
+
+    stars.forEach(s=>{
+        let speed = (0.5 + s.depth * 2) * speedMultiplier;
+        s.y += speed;
+        if(s.y > canvas.height){
+            s.y = 0;
+            s.x = Math.random()*canvas.width;
+        }
+    });
+
+    if(planet){
+
+        let boost = keys["w"] ? 1.8 : 1;
+
+        planet.t += planet.baseSpeed * boost;
+
+        let ease = planet.t * planet.t;
+
+        planet.radius = 40 + ease * gameWidth;
+
+        planet.x = gameX + gameWidth/2 + planet.offsetX * ease;
+        planet.y = gameY + gameHeight/2;
+
+        planet.holeX = planet.x + Math.sin(planet.t * 3) * 30;
+        planet.holeY = planet.y + planet.holeOffset * ease;
+
+        planet.hole = (planet.radius * 0.25) * Math.max(0.4, 1 - score * 0.03);
+
+        if(planet.t >= 1){
+
+            let dx = drone.x - planet.holeX;
+            let dy = drone.y - planet.holeY;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+
+            if(dist > planet.hole){
+                collide();
+            }else{
+                score++;
+                speedMultiplier += 0.05;
+
+                greenFlash = 1;
+                passSound.play();
+            }
+
+            planet = null;
+            setTimeout(spawnPlanet, 200);
+        }
+    }
+
+    if(greenFlash > 0) greenFlash -= 0.05;
+}
+
+function collide(){
+    gameOver = true;
+    hitFlash = 1;
+    loseSound.play();
+    boostSound.pause();
+}
+
+// DRAW
+function drawBackground(){
+    ctx.fillStyle = backgrounds[Math.floor(score/10)%backgrounds.length];
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    stars.forEach(s=>{
+        let size = 1 + s.depth * 2;
+        ctx.fillStyle="white";
+        ctx.fillRect(s.x,s.y,size,size);
+    });
+}
+
+function beginGame(){
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(gameX, gameY, gameWidth, gameHeight);
+    ctx.clip();
+}
+
+function endGame(){
+    ctx.restore();
+}
+
+function drawDrone(){
+    ctx.save();
+    ctx.translate(drone.x, drone.y);
+    ctx.rotate(drone.angle);
+
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillRect(-20,-8,40,16);
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.beginPath();
+    ctx.arc(-35,0,10,0,Math.PI*2);
+    ctx.arc(35,0,10,0,Math.PI*2);
+    ctx.fill();
+
+    if(keys["w"]){
+        ctx.fillStyle="orange";
+        ctx.fillRect(-40,10,8,15);
+        ctx.fillRect(32,10,8,15);
+    }
+
+    ctx.restore();
+}
+
+function drawPlanet(){
+    if(!planet) return;
+
+    ctx.beginPath();
+    ctx.arc(planet.x, planet.y, planet.radius, 0, Math.PI*2);
+    ctx.fillStyle = "green";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(planet.holeX, planet.holeY, planet.hole, 0, Math.PI*2);
+    ctx.fillStyle = "black";
+    ctx.fill();
+}
+
+// UI
+function drawUI(){
+    ctx.fillStyle="white";
+    ctx.font="20px Arial";
+
+    if(!started){
+        ctx.fillText("Presioná W para empezar", canvas.width/2-110, canvas.height/2);
+    }
+
+    ctx.fillText("Puntos: "+score,20,30);
+
+    if(greenFlash > 0){
+        ctx.fillStyle="rgba(0,255,0,"+greenFlash+")";
+        ctx.fillRect(gameX, gameY, gameWidth, gameHeight);
+    }
+
+    if(hitFlash > 0){
+        ctx.fillStyle="rgba(255,0,0,"+hitFlash+")";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+    }
+}
+
+// LOOP
+function loop(){
+    update();
+    drawBackground();
+    beginGame();
+    drawPlanet();
+    drawDrone();
+    endGame();
+    drawUI();
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
