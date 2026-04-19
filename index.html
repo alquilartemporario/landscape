@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Drone Tunnel Dynamic PRO MOBILE v2</title>
+<title>Drone Tunnel FIX</title>
 
 <style>
 body{
@@ -26,13 +26,6 @@ canvas{
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-// AUDIO
-const passSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-arcade-game-complete-or-approved-mission-205.wav");
-const loseSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-player-losing-or-failing-2042.wav");
-
-// ======================
-// SIZE
-// ======================
 let gameX, gameY, gameWidth, gameHeight;
 
 function resize(){
@@ -49,10 +42,11 @@ window.addEventListener("resize", resize);
 resize();
 
 // ======================
-// 📱 TOUCH CONTROL MEJORADO
+// INPUT
 // ======================
 let touchLeft = false;
 let touchRight = false;
+let started = false;
 
 function updateTouches(e){
     touchLeft = false;
@@ -61,122 +55,56 @@ function updateTouches(e){
     const mid = canvas.width / 2;
 
     for(let t of e.touches){
-        if(t.clientX < mid - 20) touchLeft = true;
-        if(t.clientX > mid + 20) touchRight = true;
+        if(t.clientX < mid) touchLeft = true;
+        else touchRight = true;
     }
+
+    // 🔥 FIX CLAVE: arranca SIEMPRE con primer touch
+    started = true;
 }
 
-canvas.addEventListener("touchstart", e=>{
-    updateTouches(e);
-
-    if(!started){
-        started = true;
-        resetDrone();
-        spawnPlanet();
-    }
-},{passive:false});
-
-canvas.addEventListener("touchmove", e=>{
-    updateTouches(e);
-},{passive:false});
-
-canvas.addEventListener("touchend", e=>{
-    updateTouches(e);
-},{passive:false});
-
-// ======================
-// GAME STATE
-// ======================
-let started = false;
-let gameOver = false;
-let score = 0;
-let speedMultiplier = 1;
-
-let greenFlash = 0;
-let hitFlash = 0;
+canvas.addEventListener("touchstart", updateTouches, {passive:false});
+canvas.addEventListener("touchmove", updateTouches, {passive:false});
+canvas.addEventListener("touchend", updateTouches, {passive:false});
 
 // ======================
 // DRONE
 // ======================
-let drone = {};
+let drone;
 
 function resetDrone(){
     drone = {
-        x: gameX + gameWidth/2,
-        y: gameY + gameHeight*0.7,
+        x: canvas.width/2,
+        y: canvas.height*0.7,
         vx: 0,
         vy: 0,
         angle: 0,
         angularVel: 0
     };
 }
+resetDrone();
 
 // ======================
-// 🔧 CONTROLES AJUSTADOS
+// PHYSICS (suave)
 // ======================
-
-// 🔻 MENOS POTENCIA (más suave)
-const thrustPower = 0.32;   // antes 0.5
-
-// 🔄 MÁS CONTROL DE GIRO (más libertad pero suave)
-const tiltPower = 0.0009;   // antes 0.0012
-
-const maxTilt = 0.045;      // menos agresivo
-
-const gravity = 0.22;       // un poco más flotante
-const friction = 0.985;     // más inercia
+const thrustPower = 0.32;
+const tiltPower = 0.0009;
+const maxTilt = 0.045;
+const gravity = 0.22;
+const friction = 0.985;
 const angularFriction = 0.92;
 
 // ======================
-// BACKGROUND
-// ======================
-const backgrounds = ["black","#020617","#0f172a","#020617","#111827"];
-
-let stars = [];
-for(let i=0;i<140;i++){
-    stars.push({
-        x: Math.random()*canvas.width,
-        y: Math.random()*canvas.height,
-        depth: Math.random()
-    });
-}
-
-// ======================
-// PLANET
-// ======================
-let planet = null;
-
-function spawnPlanet(){
-    planet = {
-        t: 0,
-        baseSpeed: 0.0035 + speedMultiplier*0.0006,
-        offsetX: (Math.random()-0.5) * gameWidth * 0.5,
-        holeOffset: (Math.random()-0.5) * gameHeight * 0.3,
-    };
-}
-
-// ======================
-// UPDATE
+// LOOP SAFE START
 // ======================
 function update(){
 
-    if(!started) return;
+    if(!drone) resetDrone();
 
-    if(gameOver){
-        hitFlash -= 0.02;
-        if(hitFlash <= 0){
-            gameOver = false;
-            score = 0;
-            speedMultiplier = 1;
-            resetDrone();
-            spawnPlanet();
-        }
+    if(!started){
+        // 🔥 evita pantalla negra total
         return;
     }
-
-    // ======================
-    // 📱 INPUT SUAVE
-    // ======================
 
     let thrust = 0;
 
@@ -186,13 +114,6 @@ function update(){
         thrust = thrustPower;
     }
 
-    // boost leve si ambos
-    if(touchLeft && touchRight){
-        thrust *= 1.35;
-        drone.angularVel *= 0.8; // estabiliza suave
-    }
-
-    // giro MUY progresivo (clave del feel)
     if(touchLeft && !touchRight){
         drone.angularVel -= tiltPower;
     }
@@ -201,9 +122,13 @@ function update(){
         drone.angularVel += tiltPower;
     }
 
+    if(touchLeft && touchRight){
+        thrust *= 1.3;
+        drone.angularVel *= 0.8;
+    }
+
     drone.angularVel = Math.max(-maxTilt, Math.min(maxTilt, drone.angularVel));
 
-    // física
     drone.vx += Math.sin(drone.angle) * thrust;
     drone.vy -= Math.cos(drone.angle) * thrust;
 
@@ -216,166 +141,61 @@ function update(){
     drone.vx *= friction;
     drone.vy *= friction;
     drone.angularVel *= angularFriction;
-
-    // límites suaves
-    if(drone.x < gameX) drone.x = gameX;
-    if(drone.x > gameX + gameWidth) drone.x = gameX + gameWidth;
-
-    if(drone.y > gameY + gameHeight){
-        collide();
-    }
-
-    // estrellas
-    stars.forEach(s=>{
-        let speed = (0.4 + s.depth * 2) * speedMultiplier;
-        s.y += speed;
-        if(s.y > canvas.height){
-            s.y = 0;
-            s.x = Math.random()*canvas.width;
-        }
-    });
-
-    // planeta
-    if(planet){
-
-        let boost = pressing ? 1.6 : 1;
-
-        planet.t += planet.baseSpeed * boost;
-
-        let ease = planet.t * planet.t;
-
-        planet.radius = 40 + ease * gameWidth;
-
-        planet.x = gameX + gameWidth/2 + planet.offsetX * ease;
-        planet.y = gameY + gameHeight/2;
-
-        planet.holeX = planet.x + Math.sin(planet.t * 3) * 25;
-        planet.holeY = planet.y + planet.holeOffset * ease;
-
-        planet.hole = (planet.radius * 0.25) * 0.9;
-
-        if(planet.t >= 1){
-
-            let dx = drone.x - planet.holeX;
-            let dy = drone.y - planet.holeY;
-            let dist = Math.sqrt(dx*dx + dy*dy);
-
-            if(dist > planet.hole){
-                collide();
-            }else{
-                score++;
-                speedMultiplier += 0.04;
-
-                greenFlash = 1;
-                passSound.play();
-            }
-
-            planet = null;
-            setTimeout(spawnPlanet, 220);
-        }
-    }
-
-    if(greenFlash > 0) greenFlash -= 0.04;
-}
-
-// ======================
-function collide(){
-    gameOver = true;
-    hitFlash = 1;
-    loseSound.play();
 }
 
 // ======================
 // DRAW
 // ======================
-function drawBackground(){
-    ctx.fillStyle = backgrounds[Math.floor(score/10)%backgrounds.length];
+function draw(){
+
+    // fondo visible SIEMPRE (debug safe)
+    ctx.fillStyle = "#05070f";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    stars.forEach(s=>{
-        let size = 1 + s.depth * 2;
-        ctx.fillStyle="white";
-        ctx.fillRect(s.x,s.y,size,size);
-    });
-}
-
-function beginGame(){
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(gameX, gameY, gameWidth, gameHeight);
-    ctx.clip();
-}
-
-function endGame(){
-    ctx.restore();
-}
-
-function drawDrone(){
-    ctx.save();
-    ctx.translate(drone.x, drone.y);
-    ctx.rotate(drone.angle);
-
-    ctx.fillStyle = "#94a3b8";
-    ctx.fillRect(-20,-8,40,16);
-
-    ctx.fillStyle = "#38bdf8";
-    ctx.beginPath();
-    ctx.arc(-35,0,10,0,Math.PI*2);
-    ctx.arc(35,0,10,0,Math.PI*2);
-    ctx.fill();
-
-    if(pressing){
-        ctx.fillStyle="orange";
-        ctx.fillRect(-40,10,8,15);
-        ctx.fillRect(32,10,8,15);
-    }
-
-    ctx.restore();
-}
-
-function drawPlanet(){
-    if(!planet) return;
-
-    ctx.beginPath();
-    ctx.arc(planet.x, planet.y, planet.radius, 0, Math.PI*2);
-    ctx.fillStyle = "green";
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(planet.holeX, planet.holeY, planet.hole, 0, Math.PI*2);
-    ctx.fillStyle = "black";
-    ctx.fill();
-}
-
-// UI
-function drawUI(){
-    ctx.fillStyle="white";
-    ctx.font="20px Arial";
+    // zona de juego
+    ctx.fillStyle = "#0b1020";
+    ctx.fillRect(gameX, gameY, gameWidth, gameHeight);
 
     if(!started){
-        ctx.fillText("Toca para iniciar", canvas.width/2-80, canvas.height/2);
+        ctx.fillStyle="white";
+        ctx.font="20px Arial";
+        ctx.fillText("Toca la pantalla para empezar", 50, 100);
     }
 
-    ctx.fillText("Puntos: "+score,20,30);
+    // drone SIEMPRE visible
+    if(drone){
+        ctx.save();
+        ctx.translate(drone.x, drone.y);
+        ctx.rotate(drone.angle);
 
-    if(hitFlash > 0){
-        ctx.fillStyle="rgba(255,0,0,"+hitFlash+")";
-        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillRect(-20,-8,40,16);
+
+        ctx.fillStyle = "#38bdf8";
+        ctx.beginPath();
+        ctx.arc(-35,0,10,0,Math.PI*2);
+        ctx.arc(35,0,10,0,Math.PI*2);
+        ctx.fill();
+
+        ctx.restore();
     }
+
+    // debug touch
+    ctx.fillStyle = touchLeft ? "red" : "gray";
+    ctx.fillRect(20,20,20,20);
+
+    ctx.fillStyle = touchRight ? "blue" : "gray";
+    ctx.fillRect(50,20,20,20);
 }
 
-// LOOP
+// ======================
 function loop(){
     update();
-    drawBackground();
-    beginGame();
-    drawPlanet();
-    drawDrone();
-    endGame();
-    drawUI();
+    draw();
     requestAnimationFrame(loop);
 }
 loop();
 </script>
+
 </body>
 </html>
