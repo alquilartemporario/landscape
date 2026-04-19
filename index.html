@@ -31,6 +31,7 @@ const loseSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-player-
 
 boostSound.loop = true;
 
+// SIZE
 let gameX, gameY, gameWidth, gameHeight;
 
 function resize(){
@@ -46,39 +47,37 @@ function resize(){
 window.addEventListener("resize", resize);
 resize();
 
-/* ---------------- INPUT MOBILE ---------------- */
+/* ---------------- INPUT ---------------- */
 
-let keys = {};
-let tilt = 0; // giroscopio
-let thrustTouchLeft = false;
-let thrustTouchRight = false;
+let tilt = 0;
+let thrustLeft = false;
+let thrustRight = false;
 
-// TOUCH: ambos lados = boost
+// TOUCH BOOST (ambos lados)
 document.addEventListener("touchstart", (e)=>{
     for(let t of e.touches){
-        if(t.clientX < canvas.width/2) thrustTouchLeft = true;
-        else thrustTouchRight = true;
+        if(t.clientX < canvas.width/2) thrustLeft = true;
+        else thrustRight = true;
     }
-    if(thrustTouchLeft && thrustTouchRight){
+
+    if(thrustLeft && thrustRight){
         boostSound.currentTime = 0;
         boostSound.play();
     }
 });
 
 document.addEventListener("touchend", ()=>{
-    thrustTouchLeft = false;
-    thrustTouchRight = false;
+    thrustLeft = false;
+    thrustRight = false;
     boostSound.pause();
 });
 
-/* -------- GIROSCOPIO (LANDSCAPE CONTROL) -------- */
+/* ---------------- GIROSCOPIO ---------------- */
 
 function handleOrientation(e){
-    // gamma = izquierda/derecha en landscape
-    tilt = e.gamma || 0;
+    tilt = e.gamma || 0; // izquierda/derecha en horizontal
 }
 
-// iOS permission
 if (typeof DeviceOrientationEvent !== "undefined" &&
     typeof DeviceOrientationEvent.requestPermission === "function") {
 
@@ -88,14 +87,14 @@ if (typeof DeviceOrientationEvent !== "undefined" &&
             if(response === "granted"){
                 window.addEventListener("deviceorientation", handleOrientation);
             }
-        }).catch(()=>{});
+        });
     }, {once:true});
 
-}else{
+} else {
     window.addEventListener("deviceorientation", handleOrientation);
 }
 
-/* ---------------- GAME STATE ---------------- */
+/* ---------------- STATE ---------------- */
 
 let started = false;
 let gameOver = false;
@@ -128,8 +127,6 @@ const friction = 0.99;
 
 /* ---------------- BACKGROUND ---------------- */
 
-const backgrounds = ["black","#020617","#0f172a","#020617","#111827"];
-
 let stars = [];
 for(let i=0;i<150;i++){
     stars.push({
@@ -157,7 +154,7 @@ function spawnPlanet(){
 function update(){
 
     if(!started){
-        if(thrustTouchLeft && thrustTouchRight){
+        if(thrustLeft && thrustRight){
             started = true;
             score = 0;
             speedMultiplier = 1;
@@ -171,18 +168,15 @@ function update(){
         hitFlash -= 0.02;
         if(hitFlash <= 0){
             gameOver = false;
-            score = 0;
-            speedMultiplier = 1;
             resetDrone();
             spawnPlanet();
         }
         return;
     }
 
-    let thrust = (thrustTouchLeft && thrustTouchRight) ? thrustPower : 0;
+    let thrust = (thrustLeft && thrustRight) ? thrustPower : 0;
 
-    // GIROSCOPIO CONTROL
-    drone.angularVel += tilt * tiltPower;
+    /* ---------------- MOVIMIENTO ---------------- */
 
     drone.vx += Math.sin(drone.angle) * thrust;
     drone.vy -= Math.cos(drone.angle) * thrust;
@@ -191,11 +185,30 @@ function update(){
 
     drone.x += drone.vx;
     drone.y += drone.vy;
+
+    /* ---------------- GIRO + ESTABILIZADOR ---------------- */
+
+    drone.angularVel += tilt * tiltPower;
+
+    // 🧭 estabilizador automático
+    const targetAngle = Math.atan2(drone.vx, -drone.vy);
+    let angleDiff = targetAngle - drone.angle;
+    angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+
+    drone.angularVel += angleDiff * 0.02;
+
+    /* ---------------- LIMITADOR ---------------- */
+
+    const maxAngular = 0.08;
+    drone.angularVel = Math.max(-maxAngular, Math.min(maxAngular, drone.angularVel));
+
     drone.angle += drone.angularVel;
 
     drone.vx *= friction;
     drone.vy *= friction;
     drone.angularVel *= angularFriction;
+
+    /* ---------------- LIMITES ---------------- */
 
     if(drone.x < gameX) drone.x = gameX;
     if(drone.x > gameX + gameWidth) drone.x = gameX + gameWidth;
@@ -203,6 +216,8 @@ function update(){
     if(drone.y > gameY + gameHeight){
         collide();
     }
+
+    /* ---------------- STARS ---------------- */
 
     stars.forEach(s=>{
         let speed = (0.5 + s.depth * 2) * speedMultiplier;
@@ -213,12 +228,13 @@ function update(){
         }
     });
 
+    /* ---------------- PLANET ---------------- */
+
     if(planet){
 
         let boost = thrust ? 1.8 : 1;
 
         planet.t += planet.baseSpeed * boost;
-
         let ease = planet.t * planet.t;
 
         planet.radius = 40 + ease * gameWidth;
@@ -239,7 +255,7 @@ function update(){
 
             if(dist > planet.hole){
                 collide();
-            }else{
+            } else {
                 score++;
                 speedMultiplier += 0.05;
                 greenFlash = 1;
@@ -264,7 +280,7 @@ function collide(){
 /* ---------------- DRAW ---------------- */
 
 function drawBackground(){
-    ctx.fillStyle = backgrounds[Math.floor(score/10)%backgrounds.length];
+    ctx.fillStyle = "#020617";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
     stars.forEach(s=>{
@@ -299,7 +315,7 @@ function drawDrone(){
     ctx.arc(35,0,10,0,Math.PI*2);
     ctx.fill();
 
-    if(thrustTouchLeft && thrustTouchRight){
+    if(thrustLeft && thrustRight){
         ctx.fillStyle="orange";
         ctx.fillRect(-40,10,8,15);
         ctx.fillRect(32,10,8,15);
@@ -321,6 +337,8 @@ function drawPlanet(){
     ctx.fillStyle = "black";
     ctx.fill();
 }
+
+/* ---------------- UI ---------------- */
 
 function drawUI(){
     ctx.fillStyle="white";
