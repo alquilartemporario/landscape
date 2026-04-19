@@ -2,14 +2,14 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Drone Tunnel Dynamic PRO Mobile</title>
+<title>Drone Tunnel Dynamic PRO MOBILE</title>
 
 <style>
 body{
     margin:0;
     background:black;
     overflow:hidden;
-    touch-action: none;
+    touch-action:none;
 }
 canvas{
     display:block;
@@ -31,7 +31,6 @@ const loseSound = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-player-
 
 boostSound.loop = true;
 
-// SIZE
 let gameX, gameY, gameWidth, gameHeight;
 
 function resize(){
@@ -47,55 +46,86 @@ function resize(){
 window.addEventListener("resize", resize);
 resize();
 
-/* ---------------- INPUT ---------------- */
+// ----------------------
+// INPUT TECLADO (fallback)
+// ----------------------
+const keys = {};
+document.addEventListener("keydown", e=>{
+    keys[e.key]=true;
 
-let tilt = 0;
-let thrustLeft = false;
-let thrustRight = false;
-
-// TOUCH BOOST (ambos lados)
-document.addEventListener("touchstart", (e)=>{
-    for(let t of e.touches){
-        if(t.clientX < canvas.width/2) thrustLeft = true;
-        else thrustRight = true;
-    }
-
-    if(thrustLeft && thrustRight){
+    if(e.key==="w" && !boostSound.playing){
         boostSound.currentTime = 0;
         boostSound.play();
     }
 });
 
-document.addEventListener("touchend", ()=>{
-    thrustLeft = false;
-    thrustRight = false;
-    boostSound.pause();
+document.addEventListener("keyup", e=>{
+    keys[e.key]=false;
+    if(e.key==="w"){
+        boostSound.pause();
+    }
 });
 
-/* ---------------- GIROSCOPIO ---------------- */
+// ----------------------
+// TOUCH CONTROLS
+// ----------------------
+let touches = {left:false, right:false};
 
-function handleOrientation(e){
-    tilt = e.gamma || 0; // izquierda/derecha en horizontal
+function updateTouch(e){
+    touches.left = false;
+    touches.right = false;
+
+    for(let t of e.touches){
+        if(t.clientX < window.innerWidth/2){
+            touches.left = true;
+        }else{
+            touches.right = true;
+        }
+    }
 }
 
-if (typeof DeviceOrientationEvent !== "undefined" &&
-    typeof DeviceOrientationEvent.requestPermission === "function") {
+document.addEventListener("touchstart", e=>{
+    updateTouch(e);
+    startGyro();
+},{passive:true});
 
-    document.addEventListener("touchstart", ()=>{
+document.addEventListener("touchmove", updateTouch,{passive:true});
+document.addEventListener("touchend", updateTouch,{passive:true});
+
+// ----------------------
+// GYRO CONTROL
+// ----------------------
+let gyroEnabled = false;
+let tilt = 0;
+
+function startGyro(){
+    if(gyroEnabled) return;
+
+    if(typeof DeviceOrientationEvent !== "undefined" &&
+       typeof DeviceOrientationEvent.requestPermission === "function"){
         DeviceOrientationEvent.requestPermission()
-        .then(response=>{
-            if(response === "granted"){
-                window.addEventListener("deviceorientation", handleOrientation);
-            }
-        });
-    }, {once:true});
-
-} else {
-    window.addEventListener("deviceorientation", handleOrientation);
+        .then(res=>{
+            if(res==="granted") enableGyro();
+        })
+        .catch(()=>{});
+    }else{
+        enableGyro();
+    }
 }
 
-/* ---------------- STATE ---------------- */
+function enableGyro(){
+    gyroEnabled = true;
 
+    window.addEventListener("deviceorientation", e=>{
+        if(e.gamma !== null){
+            tilt = e.gamma; // -90 a 90
+        }
+    });
+}
+
+// ----------------------
+// ESTADO
+// ----------------------
 let started = false;
 let gameOver = false;
 let score = 0;
@@ -104,6 +134,7 @@ let speedMultiplier = 1;
 let greenFlash = 0;
 let hitFlash = 0;
 
+// DRONE
 let drone = {};
 
 function resetDrone(){
@@ -117,15 +148,16 @@ function resetDrone(){
     };
 }
 
-/* ---------------- CONFIG ---------------- */
-
+// CONFIG
 const gravity = 0.25;
 const thrustPower = 0.5;
-const tiltPower = 0.0025;
+const tiltPower = 0.0012;
 const angularFriction = 0.90;
+const maxTilt = 0.05;
 const friction = 0.99;
 
-/* ---------------- BACKGROUND ---------------- */
+// FONDO
+const backgrounds = ["black","#020617","#0f172a","#020617","#111827"];
 
 let stars = [];
 for(let i=0;i<150;i++){
@@ -136,8 +168,7 @@ for(let i=0;i<150;i++){
     });
 }
 
-/* ---------------- PLANET ---------------- */
-
+// PLANETA
 let planet = null;
 
 function spawnPlanet(){
@@ -149,13 +180,23 @@ function spawnPlanet(){
     };
 }
 
-/* ---------------- UPDATE ---------------- */
-
+// UPDATE
 function update(){
 
-    if(!started){
-        if(thrustLeft && thrustRight){
-            started = true;
+    if(!started && (keys["w"] || touches.left || touches.right)){
+        started = true;
+        score = 0;
+        speedMultiplier = 1;
+        resetDrone();
+        spawnPlanet();
+    }
+
+    if(!started) return;
+
+    if(gameOver){
+        hitFlash -= 0.02;
+        if(hitFlash <= 0){
+            gameOver = false;
             score = 0;
             speedMultiplier = 1;
             resetDrone();
@@ -164,19 +205,30 @@ function update(){
         return;
     }
 
-    if(gameOver){
-        hitFlash -= 0.02;
-        if(hitFlash <= 0){
-            gameOver = false;
-            resetDrone();
-            spawnPlanet();
-        }
-        return;
+    // ----------------------
+    // BOOST MOBILE: ambos lados
+    // ----------------------
+    let thrust = (keys["w"] || (touches.left && touches.right)) ? thrustPower : 0;
+
+    if(thrust && !boostSound.playing){
+        boostSound.currentTime = 0;
+        boostSound.play();
+    }
+    if(!thrust){
+        boostSound.pause();
     }
 
-    let thrust = (thrustLeft && thrustRight) ? thrustPower : 0;
+    // ----------------------
+    // GIRO: gyro reemplaza A/D
+    // ----------------------
+    let gyroInput = gyroEnabled ? (tilt * 0.0008) : 0;
 
-    /* ---------------- MOVIMIENTO ---------------- */
+    if(keys["a"]) drone.angularVel -= tiltPower;
+    if(keys["d"]) drone.angularVel += tiltPower;
+
+    drone.angularVel += gyroInput;
+
+    drone.angularVel = Math.max(-maxTilt, Math.min(maxTilt, drone.angularVel));
 
     drone.vx += Math.sin(drone.angle) * thrust;
     drone.vy -= Math.cos(drone.angle) * thrust;
@@ -185,30 +237,11 @@ function update(){
 
     drone.x += drone.vx;
     drone.y += drone.vy;
-
-    /* ---------------- GIRO + ESTABILIZADOR ---------------- */
-
-    drone.angularVel += tilt * tiltPower;
-
-    // 🧭 estabilizador automático
-    const targetAngle = Math.atan2(drone.vx, -drone.vy);
-    let angleDiff = targetAngle - drone.angle;
-    angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
-
-    drone.angularVel += angleDiff * 0.02;
-
-    /* ---------------- LIMITADOR ---------------- */
-
-    const maxAngular = 0.08;
-    drone.angularVel = Math.max(-maxAngular, Math.min(maxAngular, drone.angularVel));
-
     drone.angle += drone.angularVel;
 
     drone.vx *= friction;
     drone.vy *= friction;
     drone.angularVel *= angularFriction;
-
-    /* ---------------- LIMITES ---------------- */
 
     if(drone.x < gameX) drone.x = gameX;
     if(drone.x > gameX + gameWidth) drone.x = gameX + gameWidth;
@@ -216,8 +249,6 @@ function update(){
     if(drone.y > gameY + gameHeight){
         collide();
     }
-
-    /* ---------------- STARS ---------------- */
 
     stars.forEach(s=>{
         let speed = (0.5 + s.depth * 2) * speedMultiplier;
@@ -228,13 +259,11 @@ function update(){
         }
     });
 
-    /* ---------------- PLANET ---------------- */
-
     if(planet){
-
-        let boost = thrust ? 1.8 : 1;
+        let boost = (keys["w"] || (touches.left && touches.right)) ? 1.8 : 1;
 
         planet.t += planet.baseSpeed * boost;
+
         let ease = planet.t * planet.t;
 
         planet.radius = 40 + ease * gameWidth;
@@ -255,9 +284,10 @@ function update(){
 
             if(dist > planet.hole){
                 collide();
-            } else {
+            }else{
                 score++;
                 speedMultiplier += 0.05;
+
                 greenFlash = 1;
                 passSound.play();
             }
@@ -266,8 +296,6 @@ function update(){
             setTimeout(spawnPlanet, 200);
         }
     }
-
-    if(greenFlash > 0) greenFlash -= 0.05;
 }
 
 function collide(){
@@ -277,10 +305,9 @@ function collide(){
     boostSound.pause();
 }
 
-/* ---------------- DRAW ---------------- */
-
+// DRAW
 function drawBackground(){
-    ctx.fillStyle = "#020617";
+    ctx.fillStyle = backgrounds[Math.floor(score/10)%backgrounds.length];
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
     stars.forEach(s=>{
@@ -315,7 +342,7 @@ function drawDrone(){
     ctx.arc(35,0,10,0,Math.PI*2);
     ctx.fill();
 
-    if(thrustLeft && thrustRight){
+    if(keys["w"] || (touches.left && touches.right)){
         ctx.fillStyle="orange";
         ctx.fillRect(-40,10,8,15);
         ctx.fillRect(32,10,8,15);
@@ -338,14 +365,12 @@ function drawPlanet(){
     ctx.fill();
 }
 
-/* ---------------- UI ---------------- */
-
 function drawUI(){
     ctx.fillStyle="white";
     ctx.font="20px Arial";
 
     if(!started){
-        ctx.fillText("Toca ambos lados para empezar", canvas.width/2-150, canvas.height/2);
+        ctx.fillText("Toca ambos lados para boost / inclina el móvil", 40, canvas.height/2);
     }
 
     ctx.fillText("Puntos: "+score,20,30);
@@ -361,8 +386,7 @@ function drawUI(){
     }
 }
 
-/* ---------------- LOOP ---------------- */
-
+// LOOP
 function loop(){
     update();
     drawBackground();
