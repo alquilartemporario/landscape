@@ -12,6 +12,7 @@ body{
     touch-action:none;
     font-family:Arial;
 }
+
 canvas{
     display:block;
 }
@@ -52,6 +53,7 @@ button{
 <canvas id="game"></canvas>
 
 <script>
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -81,7 +83,7 @@ function goFullscreen(){
     }
 }
 
-// SIZE
+// RESIZE
 let gameX, gameY, gameWidth, gameHeight;
 
 function resize(){
@@ -97,7 +99,7 @@ function resize(){
 window.addEventListener("resize", resize);
 resize();
 
-// INPUT TOUCH
+// TOUCH INPUT
 let leftTouch = false;
 let rightTouch = false;
 
@@ -109,13 +111,12 @@ window.addEventListener("touchstart", e=>{
     unlockAudio();
 
     for(let t of e.touches){
-        let side = getSide(t.clientX);
-        if(side === "left") leftTouch = true;
-        if(side === "right") rightTouch = true;
+        if(getSide(t.clientX)==="left") leftTouch = true;
+        if(getSide(t.clientX)==="right") rightTouch = true;
     }
 });
 
-window.addEventListener("touchend", e=>{
+window.addEventListener("touchend", ()=>{
     leftTouch = false;
     rightTouch = false;
 });
@@ -126,21 +127,18 @@ let gameOver = false;
 let score = 0;
 let speedMultiplier = 1;
 
-let backgrounds = ["#000","#020617","#0f172a","#111827"];
-let bgIndex = 0;
-
-// DRONE
-let drone;
+// DRONE (FIX IMPORTANTE)
+let drone = {
+    x:0,y:0,vx:0,vy:0,angle:0,angularVel:0
+};
 
 function resetDrone(){
-    drone = {
-        x: canvas.width/2,
-        y: canvas.height*0.7,
-        vx:0,
-        vy:0,
-        angle:0,
-        angularVel:0
-    };
+    drone.x = canvas.width/2;
+    drone.y = canvas.height*0.7;
+    drone.vx = 0;
+    drone.vy = 0;
+    drone.angle = 0;
+    drone.angularVel = 0;
 }
 
 // PLANET
@@ -156,13 +154,14 @@ function spawnPlanet(){
     };
 }
 
-// START GAME
+// START
 startBtn.onclick = ()=>{
+    unlockAudio();
+
     started = true;
     gameOver = false;
     score = 0;
     speedMultiplier = 1;
-    bgIndex = 0;
 
     resetDrone();
     spawnPlanet();
@@ -170,30 +169,25 @@ startBtn.onclick = ()=>{
     uiStart.style.display = "none";
 };
 
-fsBtn.onclick = ()=>{
-    goFullscreen();
-};
+fsBtn.onclick = ()=>goFullscreen();
 
 // PHYSICS
 const gravity = 0.25;
 const thrustPower = 0.6;
 const turnPower = 0.04;
-const friction = 0.98;
 
 // UPDATE
 function update(){
 
     if(!started) return;
 
-    if(gameOver){
-        return;
-    }
+    if(gameOver) return;
 
-    // ROTATE
+    // giro
     if(leftTouch) drone.angularVel -= turnPower;
     if(rightTouch) drone.angularVel += turnPower;
 
-    // BOOST
+    // boost (dos dedos)
     let thrust = (leftTouch && rightTouch) ? thrustPower : 0;
 
     drone.vx += Math.sin(drone.angle) * thrust;
@@ -205,11 +199,10 @@ function update(){
     drone.y += drone.vy;
     drone.angle += drone.angularVel;
 
-    drone.vx *= friction;
-    drone.vy *= friction;
+    drone.vx *= 0.98;
+    drone.vy *= 0.98;
     drone.angularVel *= 0.9;
 
-    // limits
     if(drone.y > canvas.height){
         collide();
     }
@@ -228,9 +221,10 @@ function update(){
         planet.holeX = planet.x;
         planet.holeY = planet.y + planet.holeOffset * ease;
 
-        planet.hole = (planet.radius * 0.25);
+        planet.hole = planet.radius * 0.25;
 
         if(planet.t >= 1){
+
             let dx = drone.x - planet.holeX;
             let dy = drone.y - planet.holeY;
             let dist = Math.sqrt(dx*dx + dy*dy);
@@ -251,14 +245,14 @@ function update(){
     }
 }
 
-// COLLISION
+// COLLISION → vuelve a menú inicial
 function collide(){
     gameOver = true;
+
     loseSound.currentTime = 0;
     loseSound.play().catch(()=>{});
 
     setTimeout(()=>{
-        // RESET TOTAL → vuelve a pantalla inicial
         started = false;
         gameOver = false;
         uiStart.style.display = "flex";
@@ -267,12 +261,15 @@ function collide(){
 
 // DRAW
 function draw(){
-    ctx.fillStyle = backgrounds[bgIndex];
+
+    ctx.fillStyle="black";
     ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    if(!started) return;
 
     // drone
     ctx.save();
-    ctx.translate(drone.x, drone.y);
+    ctx.translate(drone.x,drone.y);
     ctx.rotate(drone.angle);
 
     ctx.fillStyle="#94a3b8";
@@ -306,6 +303,7 @@ function loop(){
     requestAnimationFrame(loop);
 }
 loop();
+
 </script>
 
 </body>
